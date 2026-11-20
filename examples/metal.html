@@ -1,0 +1,52 @@
+<h2>Vertex and fragment shaders</h2>
+<pre><code>#include &lt;metal_stdlib&gt;
+using namespace metal;
+
+struct VertexIn {
+	float3 position [[attribute(0)]];
+	float2 uv       [[attribute(1)]];
+};
+
+struct VertexOut {
+	float4 position [[position]];
+	float2 uv;
+};
+
+vertex VertexOut vertex_main(VertexIn in [[stage_in]],
+                             constant float4x4&amp; mvp [[buffer(1)]])
+{
+	VertexOut out;
+	out.position = mvp * float4(in.position, 1.0);
+	out.uv = in.uv;
+	return out;
+}
+
+fragment half4 fragment_main(VertexOut in [[stage_in]],
+                             texture2d&lt;half&gt; image [[texture(0)]],
+                             sampler s [[sampler(0)]])
+{
+	half4 color = image.sample(s, in.uv);
+	return half4(color.rgb * 0.5h, color.a);
+}</code></pre>
+
+<h2>Compute kernel</h2>
+<pre><code>// Blur each row of pixels, staging a tile in threadgroup memory.
+kernel void blur(texture2d&lt;half, access::read&gt;  src   [[texture(0)]],
+                 texture2d&lt;half, access::write&gt; dst   [[texture(1)]],
+                 device atomic_uint*            count [[buffer(0)]],
+                 uint2 gid  [[thread_position_in_grid]],
+                 uint2 lid  [[thread_position_in_threadgroup]],
+                 uint2 size [[threads_per_threadgroup]])
+{
+	threadgroup half4 tile[16][16];
+	tile[lid.y][lid.x] = src.read(gid);
+	threadgroup_barrier(mem_flags::mem_threadgroup);
+
+	half4 sum = 0.0h;
+	for (uint i = 0; i &lt; size.x; ++i) {
+		sum += tile[lid.y][i];
+	}
+
+	dst.write(sum / half(size.x), gid);
+	atomic_fetch_add_explicit(count, 1u, memory_order_relaxed);
+}</code></pre>
